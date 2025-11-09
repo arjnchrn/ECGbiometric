@@ -78,10 +78,6 @@ Following the paper's specification:
 
 ## Installation
 
-### Running on Replit
-
-All dependencies are pre-installed on Replit. The app runs automatically on port 5000.
-
 ### Running Locally
 
 After downloading the project as a zip file from Replit:
@@ -131,7 +127,6 @@ After downloading the project as a zip file from Replit:
    http://localhost:5000
    ```
 
-**Note:** The first time you run the app, it will download the PTB ECG database (~500 MB) which may take a few minutes depending on your internet connection.
 
 ## Usage
 
