@@ -78,9 +78,6 @@ Following the paper's specification:
 
 ## Installation
 
-### Running Locally
-
-After downloading the project as a zip file from Replit:
 
 1. **Extract the zip file** to your desired location
 
