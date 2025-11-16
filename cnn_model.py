@@ -63,30 +63,33 @@ class ECGAuthenticationCNN:
         return history
     
     def create_feature_extractor(self):
-        """Create feature extractor by removing FC layers"""
         if self.model is None:
             raise ValueError("Model must be trained first!")
-        
-        conv_layers = []
+
+        # Extract all layers up to (but NOT including) final Dense(num_classes)
+        layers_until_embedding = []
         for layer in self.model.layers:
-            if isinstance(layer, (layers.Conv1D, layers.MaxPooling1D, layers.Dropout)):
-                conv_layers.append(layer)
-            elif isinstance(layer, layers.Flatten):
-                conv_layers.append(layer)
+            if isinstance(layer, layers.Dense) and layer.units == self.num_classes:
                 break
-        
-        feature_extractor = models.Sequential(conv_layers)
-        
+            layers_until_embedding.append(layer)
+
+        feature_extractor = models.Sequential(layers_until_embedding)
         self.feature_extractor = feature_extractor
         return feature_extractor
     
     def extract_features(self, X):
-        """Extract high-dimensional features using convolutional layers only"""
         if self.feature_extractor is None:
             self.create_feature_extractor()
-        
+
         features = self.feature_extractor.predict(X, verbose=0)
+
+        # L2 Normalization
+        norms = np.linalg.norm(features, axis=1, keepdims=True)
+        norms[norms == 0] = 1e-6
+        features = features / norms
+
         return features
+
     
     def save_model(self, filepath='ecg_auth_model.keras'):
         """Save the trained model"""

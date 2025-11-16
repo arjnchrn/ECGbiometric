@@ -18,7 +18,7 @@ class ECGAuthenticator:
             
             self.enrolled_users[subject_name] = {
                 'subject_id': subject_id,
-                'features': subject_features
+                'centroid': np.mean(subject_features, axis=0)
             }
         
         print(f"Enrolled {len(self.enrolled_users)} users")
@@ -39,14 +39,11 @@ class ECGAuthenticator:
         best_match = None
         
         for user_name, user_data in self.enrolled_users.items():
-            enrolled_features = user_data['features']
-            
-            for enrolled_feature in enrolled_features:
-                distance = self.calculate_euclidean_distance(test_features, enrolled_feature)
-                
-                if distance < min_distance:
-                    min_distance = distance
-                    best_match = user_name
+            centroid = user_data['centroid']            
+            distance = self.calculate_euclidean_distance(test_features, user_data['centroid'])
+            if distance < min_distance:
+                min_distance = distance
+                best_match = user_name
         
         is_authenticated = min_distance < threshold
         
@@ -66,13 +63,11 @@ class ECGAuthenticator:
             is_genuine = true_subject_id in user_indices
             
             min_distance = float('inf')
-            for user_name, user_data in self.enrolled_users.items():
-                enrolled_features = user_data['features']
-                
-                for enrolled_feature in enrolled_features:
-                    distance = self.calculate_euclidean_distance(test_feature, enrolled_feature)
-                    if distance < min_distance:
-                        min_distance = distance
+            for user_name, user_data in self.enrolled_users.items():                
+                centroid = user_data['centroid']
+                distance = self.calculate_euclidean_distance(test_feature, centroid)
+                if distance < min_distance:
+                    min_distance = distance
             
             y_true.append(1 if is_genuine else 0)
             y_scores.append(-min_distance)
@@ -89,7 +84,7 @@ class ECGAuthenticator:
         
         self.threshold = eer_threshold
         
-        y_pred = (y_scores >= -eer_threshold).astype(int)
+        y_pred = ( (-y_scores) < eer_threshold ).astype(int)
         accuracy = accuracy_score(y_true, y_pred)
         
         far = np.sum((y_pred == 1) & (y_true == 0)) / np.sum(y_true == 0) if np.sum(y_true == 0) > 0 else 0

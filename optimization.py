@@ -9,10 +9,12 @@ class WeightOptimizer:
         self.optimized_models = {}
         
     def binary_weight_transform(self, weights):
-        """Apply SIGN function to convert weights to binary (+1, -1)"""
+        """Apply SIGN function to convert weights to binary"""
+
+        scaling_factor = np.mean(np.abs(weights))
         binary_weights = np.sign(weights)
         binary_weights[binary_weights == 0] = 1
-        return binary_weights
+        return binary_weights * scaling_factor
     
     def approximate_weight_transform(self, weights, n=1):
         """Approximate weights using exponential representation"""
@@ -49,8 +51,10 @@ class WeightOptimizer:
         
         return approx_weights
     
+# In optimization.py
+
     def create_binary_model(self):
-        """Create model with binary weights"""
+        """Create model with binary weights using per-filter scaling"""
         binary_model = keras.models.clone_model(self.original_model)
         binary_model.set_weights(self.original_model.get_weights())
         
@@ -58,13 +62,36 @@ class WeightOptimizer:
             if isinstance(layer, (keras.layers.Conv1D, keras.layers.Dense)):
                 weights = layer.get_weights()
                 if len(weights) > 0:
-                    binary_kernel = self.binary_weight_transform(weights[0])
-                    weights[0] = binary_kernel
-                    layer.set_weights(weights)
+                    # Get the kernel (weights[0])
+                    kernel = weights[0]
+                    
+                    # 1. Binarize the kernel
+                    binary_kernel_base = np.sign(kernel)
+                    binary_kernel_base[binary_kernel_base == 0] = 1
+                    
+                    scaling_factor = None
+                    
+                    # 2. Calculate PER-FILTER scaling factor
+                    if isinstance(layer, keras.layers.Conv1D):
+                        # Kernel shape is (kernel_size, input_channels, output_channels)
+                        # We want one scale factor for each output_channel (filter)
+                        # So, we take the mean along axes 0 and 1
+                        scaling_factor = np.mean(np.abs(kernel), axis=(0, 1), keepdims=True)
+                        
+                    elif isinstance(layer, keras.layers.Dense):
+                        # Kernel shape is (input_features, output_features)
+                        # We want one scale factor for each output_feature (neuron)
+                        # So, we take the mean along axis 0
+                        scaling_factor = np.mean(np.abs(kernel), axis=0, keepdims=True)
+                    
+                    # 3. Apply the per-filter scaling
+                    if scaling_factor is not None:
+                        weights[0] = binary_kernel_base * scaling_factor
+                        layer.set_weights(weights)
         
         self.optimized_models['binary'] = binary_model
         return binary_model
-    
+
     def create_approximate_model(self, n=1):
         """Create model with approximate weights"""
         approx_model = keras.models.clone_model(self.original_model)
@@ -81,9 +108,16 @@ class WeightOptimizer:
         self.optimized_models[f'approx_n{n}'] = approx_model
         return approx_model
     
-    def count_operations(self, model):
+    def count_operations(self, model, variant_type='original'):
         """Count operations for complexity analysis"""
         total_mult = total_inv = total_shift = total_add = 0
+        n = 1
+
+        if 'approx' in variant_type:
+            try:
+                n = int(variant_type.split('n')[-1])
+            except:
+                n = 1
 
         for layer in model.layers:
             if isinstance(layer, keras.layers.Conv1D):
@@ -106,14 +140,14 @@ class WeightOptimizer:
                     ops_per_output = kernel_size * input_channels
                     total_ops = ops_per_output * num_filters * output_length
 
-                    if np.all(np.abs(kernel) == 1):
+                    if variant_type == 'binary':
                         total_inv += total_ops
-                    elif self._is_power_of_2_weights(kernel):
-                        n = self._estimate_n_from_weights(kernel)
+                    elif 'approx' in variant_type:
                         total_shift += total_ops * n
-                        total_add += total_ops * n
-                        total_inv += int(total_ops * 0.2)
-                    else:
+                        total_add += total_ops * (n - 1) # n shifts need n-1 additions
+                        # Assuming some sign inversions are still needed
+                        total_inv += int(total_ops * 0.1) # Small overhead
+                    else: # 'original'
                         total_mult += total_ops
 
             elif isinstance(layer, keras.layers.Dense):
@@ -121,14 +155,14 @@ class WeightOptimizer:
                 if len(weights) > 0:
                     kernel = weights[0]
                     total_ops = kernel.size
-                    if np.all(np.abs(kernel) == 1):
+
+                    if variant_type == 'binary':
                         total_inv += total_ops
-                    elif self._is_power_of_2_weights(kernel):
-                        n = self._estimate_n_from_weights(kernel)
+                    elif 'approx' in variant_type:
                         total_shift += total_ops * n
-                        total_add += total_ops * n
-                        total_inv += int(total_ops * 0.2)
-                    else:
+                        total_add += total_ops * (n - 1)
+                        total_inv += int(total_ops * 0.1)
+                    else: # 'original'
                         total_mult += total_ops
 
         # safer bias addition calculation
@@ -138,7 +172,7 @@ class WeightOptimizer:
                 try:
                     shape = getattr(layer, "output_shape", None)
                     if shape is None or not hasattr(shape, "__len__"):
-                        shape = getattr(layer.output, "shape", None)
+                        shape = getattr(layer.output, "shape",None)
                     if shape is not None:
                         bias_adds += np.prod(shape[1:])
                 except Exception:
@@ -151,7 +185,7 @@ class WeightOptimizer:
             "bit_shift": total_shift,
             "addition": total_add,
         }
-    
+
     def _is_power_of_2_weights(self, weights):
         """Check if weights are power of 2 based"""
         non_zero = weights[weights != 0]
@@ -175,46 +209,48 @@ class WeightOptimizer:
         return cycles
     
     def evaluate_all_variants(self, X_test, y_test):
-        """Evaluate all weight variants"""
-        results = {}
-        
-        print("Evaluating original model...")
-        original_pred = self.original_model.predict(X_test, verbose=0)
-        original_acc = np.mean(np.argmax(original_pred, axis=1) == y_test)
-        original_ops = self.count_operations(self.original_model)
-        original_cycles = self.calculate_cpu_cycles(original_ops)
-        
-        results['original'] = {
-            'accuracy': original_acc,
-            'operations': original_ops,
-            'cpu_cycles': original_cycles
-        }
-        
-        print("Creating and evaluating binary model...")
-        binary_model = self.create_binary_model()
-        binary_pred = binary_model.predict(X_test, verbose=0)
-        binary_acc = np.mean(np.argmax(binary_pred, axis=1) == y_test)
-        binary_ops = self.count_operations(binary_model)
-        binary_cycles = self.calculate_cpu_cycles(binary_ops)
-        
-        results['binary'] = {
-            'accuracy': binary_acc,
-            'operations': binary_ops,
-            'cpu_cycles': binary_cycles
-        }
-        
-        for n in [1, 2, 3]:
-            print(f"Creating and evaluating approximate model (n={n})...")
-            approx_model = self.create_approximate_model(n=n)
-            approx_pred = approx_model.predict(X_test, verbose=0)
-            approx_acc = np.mean(np.argmax(approx_pred, axis=1) == y_test)
-            approx_ops = self.count_operations(approx_model)
-            approx_cycles = self.calculate_cpu_cycles(approx_ops)
+            """Evaluate all weight variants"""
+            results = {}
             
-            results[f'approx_n{n}'] = {
-                'accuracy': approx_acc,
-                'operations': approx_ops,
-                'cpu_cycles': approx_cycles
+            print("Evaluating original model...")
+            original_pred = self.original_model.predict(X_test, verbose=0)
+            original_acc = np.mean(np.argmax(original_pred, axis=1) == y_test)
+            original_ops = self.count_operations(self.original_model, variant_type='original')
+            original_cycles = self.calculate_cpu_cycles(original_ops)
+            
+            results['original'] = {
+                'accuracy': original_acc,
+                'operations': original_ops,
+                'cpu_cycles': original_cycles
             }
-        
-        return results
+            
+            print("Creating and evaluating binary model...")
+            binary_model = self.create_binary_model()
+            binary_pred = binary_model.predict(X_test, verbose=0)
+            binary_acc = np.mean(np.argmax(binary_pred, axis=1) == y_test)
+            binary_ops = self.count_operations(binary_model, variant_type='binary')
+            binary_cycles = self.calculate_cpu_cycles(binary_ops)
+            
+            results['binary'] = {
+                'accuracy': binary_acc,
+                'operations': binary_ops,
+                'cpu_cycles': binary_cycles
+            }
+            
+            for n in [1, 2, 3]:
+                print(f"Creating and evaluating approximate model (n={n})...")
+                approx_model = self.create_approximate_model(n=n)
+                approx_pred = approx_model.predict(X_test, verbose=0)
+                approx_acc = np.mean(np.argmax(approx_pred, axis=1) == y_test)
+                
+                variant_name = f'approx_n{n}'
+                approx_ops = self.count_operations(approx_model, variant_type=variant_name)
+                approx_cycles = self.calculate_cpu_cycles(approx_ops)
+                
+                results[variant_name] = {
+                    'accuracy': approx_acc,
+                    'operations': approx_ops,
+                    'cpu_cycles': approx_cycles
+                }
+            
+            return results

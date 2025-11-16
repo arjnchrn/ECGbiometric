@@ -261,16 +261,16 @@ elif page == "2. Model Training":
     
     **Training Parameters**:
     - Optimizer: Adam (Gradient Descent)
-    - Epochs: 20
-    - Batch Size: 16
+    - Epochs: 100
+    - Batch Size: 32
     """)
     
     if 'X' not in st.session_state:
         st.warning("Please load data from Step 1 first!")
     else:
         col1, col2 = st.columns(2)
-        epochs = col1.number_input("Epochs", value=20, min_value=1, max_value=100)
-        batch_size = col2.number_input("Batch Size", value=16, min_value=4, max_value=128)
+        epochs = col1.number_input("Epochs", value=100, min_value=1, max_value=200)
+        batch_size = col2.number_input("Batch Size", value=32, min_value=4, max_value=128)
         
         if st.button("Train CNN Model"):
             X = st.session_state['X']
