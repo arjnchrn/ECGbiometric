@@ -120,7 +120,7 @@ def plot_roc_curve(fpr, tpr, roc_auc):
         height=500,
         width=600
     )
-    
+    fig.write_image("plot_roc_curve.png")
     return fig
 
 def plot_complexity_comparison(optimization_results):
@@ -153,12 +153,20 @@ def plot_complexity_comparison(optimization_results):
     
     fig.update_layout(
         title='Accuracy vs. CPU Cycles Trade-off',
-        xaxis_title='CPU Cycles',
-        yaxis_title='Accuracy (%)',
-        height=500,
-        width=800
-    )
-    
+     xaxis=dict(
+        title='CPU Cycles',
+        type='log',
+        tickformat='.1s'
+    ),
+    yaxis=dict(
+        title='Accuracy (%)',
+        range=[90, 100]
+    ),
+    height=500,
+    width=800,
+    showlegend=False
+)
+    fig.write_image("complexity_plot.png")
     return fig
 
 def plot_operations_comparison(optimization_results):
@@ -181,10 +189,10 @@ def plot_operations_comparison(optimization_results):
     add = [optimization_results[v]['operations']['addition'] for v in variants]
     
     fig = go.Figure(data=[
-        go.Bar(name='Multiplication', x=labels, y=mult),
-        go.Bar(name='Inversion', x=labels, y=inv),
-        go.Bar(name='Bit Shift', x=labels, y=shift),
-        go.Bar(name='Addition', x=labels, y=add)
+        go.Bar(name='Multiplication', x=labels, y=mult, marker_color='#1f77b4'),# Blue
+        go.Bar(name='Inversion', x=labels, y=inv, marker_color='#2ca02c'),      # Green
+        go.Bar(name='Bit Shift', x=labels, y=shift, marker_color='#ff7f0e'),    # Orange
+        go.Bar(name='Addition', x=labels, y=add, marker_color='#d62728')        # Red    
     ])
     
     fig.update_layout(
@@ -194,7 +202,7 @@ def plot_operations_comparison(optimization_results):
         barmode='group',
         height=500
     )
-    
+    fig.write_image("plot_operations_comparison.png")
     return fig
 
 st.sidebar.header("Navigation")
@@ -527,6 +535,7 @@ elif page == "5. Optimization & Results":
                     yaxis_title='CPU Cycles',
                     height=400
                 )
+                fig_cpu.write_image("cpu_cycles_comparison.png")
                 st.plotly_chart(fig_cpu, use_container_width=True)
             
             st.subheader("Operations Breakdown")
@@ -722,8 +731,7 @@ elif page == "7. Advanced Optimizations":
                     except Exception as e:
                         st.warning(f"INT8 quantization not fully supported: {e}")
                         int8_available = False
-                    
-                    original_size = len(tf.io.serialize_tensor(tf.constant(cnn.model.get_weights()[0]))) * len(cnn.model.get_weights())
+                    original_size = os.path.getsize(model_path)
                     
                     quant_results = {
                         'Original': {

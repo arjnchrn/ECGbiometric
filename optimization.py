@@ -51,46 +51,51 @@ class WeightOptimizer:
         
         return approx_weights
     
-# In optimization.py
-
     def create_binary_model(self):
         """Create model with binary weights using per-filter scaling"""
         binary_model = keras.models.clone_model(self.original_model)
         binary_model.set_weights(self.original_model.get_weights())
         
+        conv_layer_index = 0
+
         for layer in binary_model.layers:
-            if isinstance(layer, (keras.layers.Conv1D, keras.layers.Dense)):
+
+            # 1. Skip Dense layers completely
+            if isinstance(layer, keras.layers.Dense):
+                continue
+
+            # 2. Skip the FIRST Conv1D layer (paper requirement)
+            if isinstance(layer, keras.layers.Conv1D):
+
+                if conv_layer_index < 2:
+                    conv_layer_index += 1
+                    continue
+                conv_layer_index += 1
+
                 weights = layer.get_weights()
-                if len(weights) > 0:
-                    # Get the kernel (weights[0])
-                    kernel = weights[0]
-                    
-                    # 1. Binarize the kernel
-                    binary_kernel_base = np.sign(kernel)
-                    binary_kernel_base[binary_kernel_base == 0] = 1
-                    
-                    scaling_factor = None
-                    
-                    # 2. Calculate PER-FILTER scaling factor
-                    if isinstance(layer, keras.layers.Conv1D):
-                        # Kernel shape is (kernel_size, input_channels, output_channels)
-                        # We want one scale factor for each output_channel (filter)
-                        # So, we take the mean along axes 0 and 1
-                        scaling_factor = np.mean(np.abs(kernel), axis=(0, 1), keepdims=True)
-                        
-                    elif isinstance(layer, keras.layers.Dense):
-                        # Kernel shape is (input_features, output_features)
-                        # We want one scale factor for each output_feature (neuron)
-                        # So, we take the mean along axis 0
-                        scaling_factor = np.mean(np.abs(kernel), axis=0, keepdims=True)
-                    
-                    # 3. Apply the per-filter scaling
-                    if scaling_factor is not None:
-                        weights[0] = binary_kernel_base * scaling_factor
-                        layer.set_weights(weights)
-        
+                if len(weights) == 0:
+                    continue
+
+                kernel = weights[0]  # shape = (kernel_size, input_channels, output_channels)
+
+                # 3. SIGN binarization
+                binary_kernel_base = np.sign(kernel)
+                binary_kernel_base[binary_kernel_base == 0] = 1
+
+                # 4. Correct per-filter scaling (paper method)
+                #    mean(|kernel|) over kernel_size + input_channels
+                scaling = np.mean(np.abs(kernel), axis=(0, 1))  # shape (output_channels,)
+
+                # reshape scaling so it multiplies each filter correctly
+                binary_kernel = binary_kernel_base * scaling.reshape(1, 1, -1)
+
+                # 5. Set binary weights back
+                weights[0] = binary_kernel
+                layer.set_weights(weights)
+
         self.optimized_models['binary'] = binary_model
         return binary_model
+
 
     def create_approximate_model(self, n=1):
         """Create model with approximate weights"""
