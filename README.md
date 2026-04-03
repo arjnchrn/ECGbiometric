@@ -1,6 +1,5 @@
 # ECG Biometric Authentication for IoT Edge Devices
 
-A complete recreation of the research paper: **"Low Complexity ECG Biometric Authentication for IoT Edge Devices"** by Wang, G., John, D., & Nag, A. (IEEE ICTA 2020).
 
 ## Overview
 
@@ -194,7 +193,6 @@ optimization.py         - Binary/approximate weight transformations
 app.py                 - Streamlit interactive dashboard
 ```
 
-## Paper Methodology
 
 ### Classification → Feature Extraction → Authentication
 
@@ -204,7 +202,6 @@ app.py                 - Streamlit interactive dashboard
 4. **Authentication**: Calculate Euclidean distance between test features and enrolled features
 5. **Decision**: Accept if minimum distance < threshold, reject otherwise
 
-### Key Insight from Paper
 
 > "To generate high dimensional features of the ECG signals, we discarded fully-connected 
 > layers of trained CNN structure and kept the convolution layers which contain information 
@@ -213,17 +210,6 @@ app.py                 - Streamlit interactive dashboard
 This approach uses the CNN as a feature extractor rather than a classifier, enabling 
 distance-based authentication suitable for continuous monitoring.
 
-## Expected Results
-
-Based on the paper:
-
-| Weight Variant | Accuracy | Relative Complexity |
-|---------------|----------|---------------------|
-| Original      | 99.63%   | High (baseline)     |
-| Binary        | 91.06%   | Very Low            |
-| Approx (n=1)  | ~95-96%  | Low                 |
-| Approx (n=2)  | ~97-98%  | Medium              |
-| Approx (n=3)  | ~98.88%  | Medium-High         |
 
 ## Dataset
 
@@ -266,13 +252,3 @@ Based on the paper:
   ```bash
   pip install tensorflow numpy scipy wfdb scikit-learn matplotlib plotly biosppy pandas peakutils streamlit
   ```
-
-## References
-
-Wang, G., John, D., & Nag, A. (2020). Low Complexity ECG Biometric Authentication for IoT Edge Devices. 
-*2020 IEEE International Conference on Integrated Circuits, Technologies and Applications (ICTA)*.
-DOI: 10.1109/ICTA50426.2020.9332012
-
-## License
-
-This is a research recreation for educational purposes. Please cite the original paper when using this work.
