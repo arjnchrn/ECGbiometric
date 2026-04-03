@@ -1,8 +1,6 @@
 # ECG Biometric Authentication for IoT Edge Devices
 
 
-## Overview
-
 This project implements a CNN-based ECG biometric authentication system with complexity optimization techniques for IoT edge device deployment. The system achieves:
 - **99.63%** baseline authentication accuracy (original weights)
 - **98.88%** optimized accuracy with reduced complexity (approximate weights)
