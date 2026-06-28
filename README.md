@@ -152,7 +152,6 @@ Navigate through the 9 interactive sections:
 2. Compare accuracy vs. complexity trade-offs
 3. View CPU cycle comparisons
 4. Examine operation breakdowns
-5. Compare with paper's reported results
 
 ### Step 6: Live ECG Authentication
 1. Upload your own ECG signal (CSV, TXT, or NPY format)

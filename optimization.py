@@ -204,58 +204,118 @@ class WeightOptimizer:
         return 1
     
     def calculate_cpu_cycles(self, operations):
-        """Calculate CPU cycles based on AMD K7 architecture"""
+        """Calculate CPU cycles based on ARM Cortex-M4F architecture
+            - Multiplication (MUL / VMUL.F32): 1 cycle
+            - Inversion (MVN / EOR): 1 cycle
+            - Bit Shift (LSL / ASR): 1 cycle
+            - Addition (ADD / VADD.F32): 1 cycle
+        """
+        
         cycles = (
-            operations['multiplication'] * 3 +
+            operations['multiplication'] * 1 +
             operations['inversion'] * 1 +
             operations['bit_shift'] * 1 +
             operations['addition'] * 1
         )
         return cycles
+
+    def calculate_memory_footprint(self, model, variant_type='original'):
+        total_bytes = 0
+        conv_layer_index = 0  # tracks Conv1D layers only, matching create_binary_model
+
+        for layer in model.layers:
+            weights = layer.get_weights()
+            if not weights:
+                continue
+
+            layer_params = sum(np.prod(w.shape) for w in weights)
+
+            if variant_type == 'binary':
+                if isinstance(layer, tf.keras.layers.Conv1D):
+                    if conv_layer_index < 2:          # first two Conv1D: untouched
+                        total_bytes += layer_params * 4
+                        conv_layer_index += 1
+                        continue
+                    conv_layer_index += 1             # third Conv1D onwards: binarized
+                    kernel_params = np.prod(layer.get_weights()[0].shape)
+                    n_filters = layer.get_weights()[0].shape[-1]
+                    binary_bytes = kernel_params / 8
+                    scale_bytes  = n_filters * 4
+                    bias_bytes   = n_filters * 4
+                    total_bytes += binary_bytes + scale_bytes + bias_bytes
+                else:                                 # Dense, Flatten, BN etc: float32
+                    total_bytes += layer_params * 4
+
+            elif 'approx' in variant_type:
+                n = int(variant_type.split('n')[-1]) if 'n' in variant_type else 1
+                if isinstance(layer, tf.keras.layers.Conv1D):
+                    if conv_layer_index < 2:
+                        total_bytes += layer_params * 4
+                        conv_layer_index += 1
+                        continue
+                    conv_layer_index += 1
+                    kernel_params = np.prod(layer.get_weights()[0].shape)
+                    n_filters = layer.get_weights()[0].shape[-1]
+                    approx_bytes = (kernel_params * n) / 8
+                    scale_bytes  = n_filters * 4
+                    bias_bytes   = n_filters * 4
+                    total_bytes += approx_bytes + scale_bytes + bias_bytes
+                else:
+                    total_bytes += layer_params * 4
+
+            else:
+                total_bytes += layer_params * 4
+
+        return total_bytes
     
     def evaluate_all_variants(self, X_test, y_test):
-            """Evaluate all weight variants"""
-            results = {}
+        """Evaluate all weight variants"""
+        results = {}
+        
+        print("Evaluating original model...")
+        original_pred = self.original_model.predict(X_test, verbose=0)
+        original_acc = np.mean(np.argmax(original_pred, axis=1) == y_test)
+        original_ops = self.count_operations(self.original_model, variant_type='original')
+        original_cycles = self.calculate_cpu_cycles(original_ops)
+        original_memory = self.calculate_memory_footprint(self.original_model, variant_type='original')
+        results['original'] = {
+            'accuracy': original_acc,
+            'operations': original_ops,
+            'cpu_cycles': original_cycles,
+            'memory_bytes': original_memory
+        }
+        
+        print("Creating and evaluating binary model...")
+        binary_model = self.create_binary_model()
+        binary_pred = binary_model.predict(X_test, verbose=0)
+        binary_acc = np.mean(np.argmax(binary_pred, axis=1) == y_test)
+        binary_ops = self.count_operations(binary_model, variant_type='binary')
+        binary_cycles = self.calculate_cpu_cycles(binary_ops)
+        binary_memory = self.calculate_memory_footprint(binary_model, variant_type='binary')
+        
+        results['binary'] = {
+            'accuracy': binary_acc,
+            'operations': binary_ops,
+            'cpu_cycles': binary_cycles,
+            'memory_bytes' : binary_memory
+        }
+        
+        for n in [1, 2, 3]:
+            print(f"Creating and evaluating approximate model (n={n})...")
+            approx_model = self.create_approximate_model(n=n)
+            approx_pred = approx_model.predict(X_test, verbose=0)
+            approx_acc = np.mean(np.argmax(approx_pred, axis=1) == y_test)
             
-            print("Evaluating original model...")
-            original_pred = self.original_model.predict(X_test, verbose=0)
-            original_acc = np.mean(np.argmax(original_pred, axis=1) == y_test)
-            original_ops = self.count_operations(self.original_model, variant_type='original')
-            original_cycles = self.calculate_cpu_cycles(original_ops)
+            variant_name = f'approx_n{n}'
+            approx_ops = self.count_operations(approx_model, variant_type=variant_name)
+            approx_cycles = self.calculate_cpu_cycles(approx_ops)
+            approx_memory = self.calculate_memory_footprint(approx_model, variant_type='variant_name')
             
-            results['original'] = {
-                'accuracy': original_acc,
-                'operations': original_ops,
-                'cpu_cycles': original_cycles
+            results[variant_name] = {
+                'accuracy': approx_acc,
+                'operations': approx_ops,
+                'cpu_cycles': approx_cycles,
+                'memory_bytes' : approx_memory
             }
-            
-            print("Creating and evaluating binary model...")
-            binary_model = self.create_binary_model()
-            binary_pred = binary_model.predict(X_test, verbose=0)
-            binary_acc = np.mean(np.argmax(binary_pred, axis=1) == y_test)
-            binary_ops = self.count_operations(binary_model, variant_type='binary')
-            binary_cycles = self.calculate_cpu_cycles(binary_ops)
-            
-            results['binary'] = {
-                'accuracy': binary_acc,
-                'operations': binary_ops,
-                'cpu_cycles': binary_cycles
-            }
-            
-            for n in [1, 2, 3]:
-                print(f"Creating and evaluating approximate model (n={n})...")
-                approx_model = self.create_approximate_model(n=n)
-                approx_pred = approx_model.predict(X_test, verbose=0)
-                approx_acc = np.mean(np.argmax(approx_pred, axis=1) == y_test)
-                
-                variant_name = f'approx_n{n}'
-                approx_ops = self.count_operations(approx_model, variant_type=variant_name)
-                approx_cycles = self.calculate_cpu_cycles(approx_ops)
-                
-                results[variant_name] = {
-                    'accuracy': approx_acc,
-                    'operations': approx_ops,
-                    'cpu_cycles': approx_cycles
-                }
-            
-            return results
+        
+        return results
