@@ -16,7 +16,6 @@ This project implements a CNN-based ECG biometric authentication system with com
 - Random selection of 20 complexes per subject
 
 ### 2. CNN Model Architecture
-Following the paper's specification:
 - **Conv1D Layer 1**: 32 filters, kernel size 5, ReLU activation
 - **MaxPooling1D**: Pool size 2
 - **Dropout**: 20%
@@ -246,7 +245,7 @@ distance-based authentication suitable for continuous monitoring.
 - If upload fails, check that the file is not corrupted
 
 **5. Missing Dependencies**
-- If you get import errors, ensure all dependencies are installed:
+- ensure all dependencies are installed:
   ```bash
   pip install tensorflow numpy scipy wfdb scikit-learn matplotlib plotly biosppy pandas peakutils streamlit
   ```
